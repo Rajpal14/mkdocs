@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import logging
 import os.path
 import re
 import textwrap
@@ -739,6 +740,33 @@ class BuildTests(PathAssertionMixin, unittest.TestCase):
         '''
         with self._assert_build_logs(expected_logs):
             build.build(cfg)
+
+    @tempdir(
+        files={
+            'test/foo.md': '## page1 heading\n\n[bar](bar.md#page1-heading)',
+            'test/bar.md': '## page2 heading\n\n[aaa](#a)',
+        }
+    )
+    @tempdir()
+    def test_anchor_warning_in_debug_mode(self, site_dir, docs_dir):
+        cfg = load_config(docs_dir=docs_dir, site_dir=site_dir, validation={'anchors': 'warn'})
+
+        log = logging.getLogger('mkdocs')
+        old_level = log.level
+        log.setLevel(logging.DEBUG)
+        try:
+            with self.assertLogs('mkdocs', level='DEBUG') as cm:
+                build.build(cfg)
+            warnings = [r.message for r in cm.records if r.levelname == 'WARNING' and 'anchor' in r.message]
+            self.assertEqual(
+                warnings,
+                [
+                    "Doc file 'test/bar.md' contains a link '#a', but there is no such anchor on this page.",
+                    "Doc file 'test/foo.md' contains a link 'bar.md#page1-heading', but the doc 'test/bar.md' does not contain an anchor '#page1-heading'.",
+                ],
+            )
+        finally:
+            log.setLevel(old_level)
 
     @tempdir(
         files={
